@@ -8,12 +8,14 @@ import re
 
 TITLES = {"mr", "mrs", "ms", "miss", "dr", "smt", "shri"}
 
-def page_link(page_text: str, patient_name: str) -> tuple[bool, str]:
+def page_link(page_text: str, patient_name: str, primary_record_page: bool = False) -> tuple[bool, str]:
     others = other_people(page_text, patient_name)
     if others:
         return False, "a different person is named on this page: " + "; ".join(others)
     if page_contains_name(page_text, patient_name):
         return True, "patient name appears on this page and no other person is labeled"
+    if primary_record_page and name_tokens(patient_name):
+        return True, "page is configured as part of the primary patient's record and names no other person"
     return False, "patient name does not appear on this page"
 
 
@@ -65,8 +67,8 @@ def name_tokens(value: str) -> list[str]:
     return [part for part in parts if part not in TITLES and len(part) > 1]
 
 
-def prescription_decision(page_text: str, patient_name: str) -> tuple[bool, str]:
-    return page_link(page_text, patient_name)
+def prescription_decision(page_text: str, patient_name: str, primary_record_page: bool = False) -> tuple[bool, str]:
+    return page_link(page_text, patient_name, primary_record_page)
 
 
 def bank_link_decision(holder: str, patient_name: str, policy: str, has_fields: bool) -> tuple[bool, str, bool]:

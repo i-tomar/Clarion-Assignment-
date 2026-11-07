@@ -34,7 +34,7 @@ from validation.normalizer import (
 # template page. A real page that actually prints one of these can still keep it.
 TEMPLATE_SENTINELS = {"62042", "66666"}
 
-POLICY_VERSION = "2026-11-07.3"
+POLICY_VERSION = "2026-11-07.5"
 LIST_SPLIT_RE = re.compile(r"\s*[,;]\s*")
 
 ADMISSION_RE = re.compile(
@@ -179,6 +179,7 @@ def apply_policies(
         dropped,
     )
     history = _drop_history_overlaps(history, evidence, dropped)
+    history, procedures = _split_procedures(history, pages, evidence)
     treatment_parts, treatment_misses = _ground_items(bundle.get("treatment_taken") or "", pages, allow("treatment"))
     treatment = "; ".join(text for text, _hit in treatment_parts)
     if treatment_parts:
@@ -238,6 +239,29 @@ def apply_policies(
         warnings,
     )
 
+    filed = [
+        item for item in evidence
+        if str(item.get("field", "")).startswith(("data.medicalDetails.opd_details.pharmacy", "data.medicalDetails.opd_details.investigations"))
+        and item.get("start") is not None
+    ]
+    kept_parts = []
+    for text, hit in treatment_parts:
+        if any(
+            item["page"] == hit["page"] and item["start"] < hit["end"] and hit["start"] < item["end"]
+            for item in filed
+        ):
+            evidence[:] = [entry for entry in evidence if not (entry.get("field") == "data.medicalDetails.treatment_taken" and entry.get("start") == hit["start"])]
+            dropped.append(
+                {
+                    "field": "data.medicalDetails.treatment_taken",
+                    "value": text,
+                    "reason": "same printed line is filed as a prescribed medicine or ordered investigation; not treatment taken",
+                }
+            )
+        else:
+            kept_parts.append((text, hit))
+    treatment = "; ".join(text for text, _hit in kept_parts)
+
     bank_out, bank_quarantine = _split_bank(
         bundle,
         pages,
@@ -252,6 +276,7 @@ def apply_policies(
     bills = _ground_bills(bundle.get("bills") or [], pages, allow("bills"), evidence, dropped)
     _check_bill_columns(bills, pages, allow("bills"), warnings)
     rooms = _ground_rooms(bundle.get("room_invoice") or [], pages, allow("room"), evidence, dropped, warnings)
+    _complete_room_cells(rooms, pages, allow("room"), warnings)
 
     claimed, money = _money(
         pages,
@@ -318,6 +343,7 @@ def apply_policies(
             else bank_quarantine,
         },
         "money": money,
+        "past_procedures": procedures,
     }
     return data, audit
 
@@ -404,16 +430,17 @@ def _split_opd(bundle, pages, allowed, patient_name, evidence, dropped, warnings
     }
     kept = {key: [] for key in empty}
     quarantined_items = []
+    primary = set(bundle.get("primary_record_pages") or set())
     for key, values in groups.items():
         for value in values:
-            text, hit = ground_text(str(value), pages, allowed)
+            text, hit = _ground_one(str(value), pages, allowed)
             if not hit:
                 if str(value).strip():
                     dropped.append(
                         {"field": f"data.medicalDetails.opd_details.{key}", "value": value, "reason": "no supporting span"}
                     )
                 continue
-            ok, reason = prescription_decision(pages[hit["page"]], patient_name)
+            ok, reason = prescription_decision(pages[hit["page"]], patient_name, hit["page"] in primary)
             item = {"field": key, "value": text, **hit, "link_reason": reason}
             if ok:
                 kept[key].append(text)
@@ -435,13 +462,14 @@ def _split_opd(bundle, pages, allowed, patient_name, evidence, dropped, warnings
                     }
                 )
             continue
+        line = {hit["page"]: _line_at(pages[hit["page"]], hit["start"], hit["end"])}
         cleaned = {
             "name": name,
-            "dosageFrequencyPerDay": ground_int(drug.get("dosageFrequencyPerDay"), pages, {hit["page"]}),
-            "dosagefrequencyTotalDays": ground_int(drug.get("dosagefrequencyTotalDays"), pages, {hit["page"]}),
-            "count": ground_int(drug.get("count"), pages, {hit["page"]}),
+            "dosageFrequencyPerDay": _printed_frequency(line[hit["page"]]),
+            "dosagefrequencyTotalDays": ground_int(drug.get("dosagefrequencyTotalDays"), line, {hit["page"]}),
+            "count": ground_int(drug.get("count"), line, {hit["page"]}),
         }
-        ok, reason = prescription_decision(pages[hit["page"]], patient_name)
+        ok, reason = prescription_decision(pages[hit["page"]], patient_name, hit["page"] in primary)
         record = {"value": cleaned, **hit, "link_reason": reason, "index": index}
         if ok:
             drugs_kept.append((hit["page"], hit["start"], index, cleaned))
@@ -484,6 +512,27 @@ def _split_opd(bundle, pages, allowed, patient_name, evidence, dropped, warnings
                 }
             )
     return kept, quarantine
+
+
+FREQUENCY_WORDS = (
+    (re.compile(r"\b(three times (a )?(day|daily)|thrice daily|tid|tds)\b", re.I), 3),
+    (re.compile(r"\b(twice (a )?(day|daily)|two times (a )?(day|daily)|bid|bd)\b", re.I), 2),
+    (re.compile(r"\b(once (a )?(day|daily)|daily|od)\b", re.I), 1),
+)
+
+
+def _line_at(text: str, start: int, end: int) -> str:
+    begin = text.rfind("\n", 0, start) + 1
+    finish = text.find("\n", end)
+    return text[begin: finish if finish >= 0 else len(text)]
+
+
+def _printed_frequency(line: str) -> int:
+    """Doses per day only when the medicine's own line says so in words. Weekly or 'with meals' stays 0."""
+    for pattern, value in FREQUENCY_WORDS:
+        if pattern.search(line):
+            return value
+    return 0
 
 
 def _split_bank(bundle, pages, allowed, patient_name, bank_policy, evidence, dropped, warnings):
@@ -970,6 +1019,82 @@ def _drop_history_overlaps(history, evidence, dropped):
         item["field"] = f"{field}.{label}"
         out[label] = item["value"]
     return out
+
+
+PROCEDURE_HEADING_RE = re.compile(r"(pastsurger|majortreatment|pastprocedure|surgicalhistory)")
+
+
+def _procedure_regions(text: str) -> list[tuple[int, int]]:
+    """Character ranges that follow a printed past-surgery/treatment heading, up to the next heading."""
+    regions, offset, open_at = [], 0, None
+    for line in (text or "").splitlines(keepends=True):
+        stripped = line.strip()
+        compact = re.sub(r"[^a-z]", "", stripped.lower())
+        if stripped.endswith(":"):
+            if open_at is not None:
+                regions.append((open_at, offset))
+                open_at = None
+            if PROCEDURE_HEADING_RE.search(compact):
+                open_at = offset + len(line)
+        offset += len(line)
+    if open_at is not None:
+        regions.append((open_at, offset))
+    return regions
+
+
+def _split_procedures(history, pages, evidence):
+    """Past surgeries and treatments are not diseases. They move to the audit only."""
+    field = "data.medicalDetails.medicalhistory"
+    items = [entry for entry in evidence if str(entry.get("field", "")).startswith(field + ".")]
+    moved, kept = [], []
+    for item in items:
+        regions = _procedure_regions(pages.get(item.get("page"), ""))
+        if item.get("start") is not None and any(start <= item["start"] < end for start, end in regions):
+            item["field"] = "audit.past_procedures"
+            item["note"] = "printed under a past surgeries/treatments heading; not a disease and not an output field"
+            moved.append({"value": item["value"], "page": item["page"], "span": item["span"]})
+        else:
+            kept.append(item)
+    if not moved:
+        return history, []
+    out = {}
+    for number, item in enumerate(kept, start=1):
+        label = f"Disease{number}"
+        item["field"] = f"{field}.{label}"
+        out[label] = item["value"]
+    return out, moved
+
+
+def _complete_room_cells(rooms, pages, allowed, warnings):
+    """A room label copied as the first words of a printed cell becomes the whole printed cell."""
+    completed = 0
+    for page in sorted(allowed):
+        for block in re.findall(r"\[TABLE\]\n(.*?)(?:\n\n|\Z)", pages.get(page, ""), flags=re.S):
+            header = None
+            for line in block.splitlines():
+                cells = [" ".join(cell.split()) for cell in line.split(" | ")]
+                names = {re.sub(r"\(.*?\)", "", cell).strip().lower(): index for index, cell in enumerate(cells)}
+                if "room type" in names and "total" in names:
+                    header = names
+                    continue
+                if not header or len(cells) != len(header):
+                    continue
+                for row in rooms:
+                    if parse_amount(cells[header["total"]]) != parse_amount(row.get("total_room_amount")):
+                        continue
+                    for key, column in (("room_type", "room type"), ("room_category", "room category")):
+                        printed = cells[header[column]] if column in header else ""
+                        value = row.get(key, "")
+                        if value and printed != value and printed.lower().startswith(value.lower() + " "):
+                            row[key] = printed
+                            completed += 1
+    if completed:
+        warnings.append(
+            {
+                "code": "room_cell_completed_from_printed_table",
+                "message": f"{completed} room value(s) were the first words of a printed cell and were set to the whole printed cell.",
+            }
+        )
 
 
 def _ground_dict(values, pages, allowed, field, prefix, evidence, dropped):

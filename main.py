@@ -18,6 +18,7 @@ from config.settings import (
     allowed_keys,
     force_ocr_pages,
     generation_options,
+    primary_record_pages,
     section_plan,
     select_pages,
 )
@@ -32,6 +33,7 @@ from processors.ocr_processor import (
     ocr_cache_usable,
     prepare_image,
     recognize,
+    rows_to_text,
 )
 from processors.pdf_processor import Document, PdfError, backend_name
 from processors.table_extractor import tables_from_ocr_lines, tables_from_pdf
@@ -64,6 +66,11 @@ def parse_args(argv=None):
     parser.add_argument("--timeout", type=int, default=900)
     parser.add_argument("--dpi", type=int, default=DEFAULT_DPI)
     parser.add_argument("--workdir", default=None)
+    parser.add_argument(
+        "--ocr-overrides",
+        default=None,
+        help="JSON of human-reviewed OCR line corrections. Applied only on exact line match and listed in the audit.",
+    )
     return parser.parse_args(argv)
 
 
@@ -242,6 +249,7 @@ def _execute(args, pdf_path, work, host, *, chat_func, digest_func, write_output
         "preprocess_revision": PREPROCESS_REVISION,
         "pdf_backend": backend_name(),
         "pipeline_version": PIPELINE_VERSION,
+        "ocr_overrides_sha256": sha256_file(Path(args.ocr_overrides)) if args.ocr_overrides else "",
     }
     policy = policy_snapshot(bank_policy)
     sections = []
@@ -300,6 +308,7 @@ def _execute(args, pdf_path, work, host, *, chat_func, digest_func, write_output
                 if result.get("raw"):
                     raw_path.write_text(result["raw"], encoding="utf-8")
 
+    bundle["primary_record_pages"] = primary_record_pages(args.profile)
     ok = {section["name"] for section in sections if section["status"] == "extracted"}
     if args.profile == "clarion-assignment":
         allow_money = "bills" in ok and "room" in ok
@@ -364,6 +373,7 @@ def _execute(args, pdf_path, work, host, *, chat_func, digest_func, write_output
             for section in sections
         ],
         "pages": _page_audit(records),
+        "transcription_overrides": [item for record in records.values() for item in record.get("overrides") or []],
         **fragment,
     }
     if write_output:
@@ -395,8 +405,40 @@ def _execute(args, pdf_path, work, host, *, chat_func, digest_func, write_output
     return _Outcome(0 if success else 2, canonical, success, message, claim)
 
 
+def _load_overrides(args) -> list[dict]:
+    if not args.ocr_overrides:
+        return []
+    payload = json.loads(Path(args.ocr_overrides).read_text(encoding="utf-8"))
+    return list(payload.get("overrides") or [])
+
+
+def _apply_overrides(record: dict, overrides: list[dict], pdf_sha: str) -> None:
+    """Human-reviewed OCR corrections. Exact line text only, recorded in the audit."""
+    for item in overrides:
+        if item.get("pdf_sha256") != pdf_sha or int(item.get("page", 0)) != record["number"]:
+            continue
+        hits = [line for line in record["lines"] if line.get("text") == item["ocr_line"]]
+        status = "applied" if len(hits) == 1 else f"not_applied_{len(hits)}_matches"
+        if len(hits) == 1:
+            hits[0]["text"] = item["reviewed_line"]
+            hits[0]["human_reviewed_override"] = True
+            hits[0].pop("engine_score", None)
+        record.setdefault("overrides", []).append(
+            {
+                "page": record["number"],
+                "ocr_line": item["ocr_line"],
+                "reviewed_line": item["reviewed_line"],
+                "reason": item.get("reason", ""),
+                "status": status,
+                "kind": "human_reviewed_transcription_override",
+            }
+        )
+    record["ocr_text"] = rows_to_text(record["lines"])
+
+
 def _load_pages(document: Document, selected, args, work: Path, pdf_sha: str) -> dict:
     forced = force_ocr_pages(args.profile)
+    overrides = _load_overrides(args)
     records = {}
     for number in selected:
         text = document.text(number)
@@ -437,6 +479,8 @@ def _load_pages(document: Document, selected, args, work: Path, pdf_sha: str) ->
                 record["ocr_error"] = recognized.get("error") or ""
                 record["ocr_backend"] = recognized.get("backend") or args.backend
                 _write_ocr_cache(work, pdf_sha, number, args, record)
+            if record["ocr_text"] and overrides:
+                _apply_overrides(record, overrides, pdf_sha)
             if record["ocr_text"]:
                 record["table_text"] = tables_from_ocr_lines(record["lines"])
                 record["method"] = "ocr+text-layer" if text else "ocr"
@@ -530,6 +574,7 @@ def _empty_bundle(excluded, records) -> dict:
         "allowed": {},
         "template_pages": set(excluded),
         "page_meta": page_meta,
+        "primary_record_pages": set(),
     }
 
 
@@ -542,12 +587,13 @@ def _merge(bundle, name, data, pages):
         bundle["medicalhistory"] = data.get("medicalhistory") or {}
         bundle["current_medications"] = data.get("current_medications") or {}
         bundle["allergies"] = data.get("allergies") or {}
-    elif name == "opd":
-        bundle["rx_patient_name"] = data.get("document_patient_name") or ""
-        bundle["reportingComplaint"] = data.get("reportingComplaint") or []
-        bundle["opd_diagnosis"] = data.get("diagnosis") or []
-        bundle["investigations"] = data.get("investigations") or []
-        bundle["pharmacy"] = data.get("pharmacy") or []
+    elif name in {"opd", "visit_opd"}:
+        if name == "opd":
+            bundle["rx_patient_name"] = data.get("document_patient_name") or ""
+        bundle["reportingComplaint"] += data.get("reportingComplaint") or []
+        bundle["opd_diagnosis"] += data.get("diagnosis") or []
+        bundle["investigations"] += data.get("investigations") or []
+        bundle["pharmacy"] += data.get("pharmacy") or []
     elif name == "bank":
         for key in ("account_holder", "bank_name", "account_number", "bank_address", "ifsi_code"):
             bundle[key] = data.get(key) or ""

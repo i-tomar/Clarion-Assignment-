@@ -366,6 +366,79 @@ def test_swapped_bill_labels_follow_the_printed_table_header():
     assert any(item["code"] == "bill_labels_moved_to_printed_columns" for item in audit["warnings"])
 
 
+def test_primary_visit_page_opd_is_kept_while_outside_prescription_stays_quarantined():
+    pages = {
+        6: "Name: Asha Rao\nCity: Pune",
+        8: "Smile Clinic\nTab. Mintol 1 x 5 days",
+        10: "Symptoms: Thirst and fatigue\nMedications Prescribed:\nAmlodipine 5 mg daily\n"
+        "Epoetin alfa 4000 units weekly\nFollow up in 1 week\nLab Tests Ordered:\nComplete Blood Count (CBC)",
+    }
+    data, audit = apply_policies(
+        _bundle(
+            patient={"name": "Asha Rao"},
+            reportingComplaint=["Thirst and fatigue"],
+            investigations=["Complete Blood Count (CBC)"],
+            pharmacy=[
+                {"name": "Amlodipine 5 mg", "dosageFrequencyPerDay": 3, "dosagefrequencyTotalDays": 1, "count": 30},
+                {"name": "Epoetin alfa 4000 units", "dosageFrequencyPerDay": 1},
+                {"name": "Tab. Mintol", "dosagefrequencyTotalDays": 5},
+            ],
+            allowed={"patient": {6}, "opd": {8, 10}},
+            primary_record_pages={6, 10},
+        ),
+        pages,
+        bank_policy="never",
+        allow_money=False,
+    )
+    opd = data["medicalDetails"]["opd_details"]
+    assert opd["reportingComplaint"] == ["Thirst and fatigue"]
+    assert opd["investigations"] == ["Complete Blood Count (CBC)"]
+    assert opd["pharmacy"] == [
+        {"name": "Amlodipine 5 mg", "dosageFrequencyPerDay": 1, "dosagefrequencyTotalDays": 0, "count": 0},
+        {"name": "Epoetin alfa 4000 units", "dosageFrequencyPerDay": 0, "dosagefrequencyTotalDays": 0, "count": 0},
+    ]
+    quarantined = audit["quarantine"]["prescriptions"]["pharmacy"]
+    assert [item["value"]["name"] for item in quarantined] == ["Tab. Mintol"]
+    assert all(item["page"] == 8 for item in quarantined)
+    kept = [item for item in audit["evidence"] if "opd_details" in item["field"]]
+    assert kept and all(item["page"] == 10 and item["span_verified"] for item in kept)
+
+
+def test_past_procedures_are_not_diseases_and_room_cell_is_completed():
+    pages = {
+        7: "KnownConditions:\nHypertension\nPastSurgeriesorMajorTreatments:\nFistulacreationfordialysis(2022)\n",
+        11: "Room Charges\n\n[TABLE]\nRoom Type | Room Category | Total (INR)\nPrivate Room | Deluxe | 39,000",
+    }
+    data, audit = apply_policies(
+        _bundle(
+            medicalhistory={"a": "Hypertension", "b": "Fistula creation for dialysis (2022)"},
+            room_invoice=[{"room_type": "Private", "room_category": "Deluxe", "total_room_amount": "39000"}],
+            allowed={"history": {7}, "room": {11}},
+        ),
+        pages,
+        bank_policy="never",
+        allow_money=False,
+    )
+    assert data["medicalDetails"]["medicalhistory"] == {"Disease1": "Hypertension"}
+    assert [item["value"] for item in audit["past_procedures"]] == ["Fistula creation for dialysis (2022)"]
+    assert data["room_invoice"][0]["room_type"] == "Private Room"
+
+
+def test_ocr_override_needs_an_exact_line_and_is_recorded():
+    from main import _apply_overrides
+
+    record = {"number": 7, "ocr_text": "x", "lines": [{"text": "Abc5oo", "engine_score": 0.9, "box": [0, 0, 10, 10]}]}
+    overrides = [
+        {"pdf_sha256": "sha", "page": 7, "ocr_line": "Abc5oo", "reviewed_line": "Abc500"},
+        {"pdf_sha256": "sha", "page": 7, "ocr_line": "Missing", "reviewed_line": "X"},
+        {"pdf_sha256": "other", "page": 7, "ocr_line": "Abc5oo", "reviewed_line": "Y"},
+    ]
+    _apply_overrides(record, overrides, "sha")
+    assert record["lines"][0]["text"] == "Abc500"
+    assert "engine_score" not in record["lines"][0]
+    assert [item["status"] for item in record["overrides"]] == ["applied", "not_applied_0_matches"]
+
+
 def test_unlinked_prescription_and_bank_are_not_merged():
     pages = {
         1: "Patient Name: Asha Rao\nTab. Saline",

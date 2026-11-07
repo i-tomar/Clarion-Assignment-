@@ -1,5 +1,21 @@
 # Test report
 
+## Current version (7 Nov 2026, 08:10–08:36 IST) — read this first
+
+Changes: visit-page (page 10) OPD section with page-8 prescriptions still quarantined; drug numbers only from the medicine's own printed line; past procedures moved from `medicalhistory` to the audit by printed heading; prescribed-medicine lines removed from `treatment_taken`; room cell completed from the printed table; explicit human-reviewed OCR overrides (`--ocr-overrides`, two page-7 lines, listed in the audit).
+
+| Check | Result |
+| --- | --- |
+| Unit tests | **26 passed** (23 earlier + 3 new: page-10 OPD kept while page-8 quarantined; past procedures not diseases plus room cell; override needs an exact line). Mocked/synthetic only. |
+| Fresh run 08:14–08:23 | success, 8 sections. Review found prescribed medicines still in `treatment_taken`; fixed in the mapper. |
+| Fresh run 08:25–08:34 (submitted) | success, 8/8 sections, 559 s, OCR cache reused (OCR settings unchanged), response cache bypassed. Hash `e5cd3283…d158`. |
+| Schema | Valid, no errors (`validate.py`). |
+| Source review of changed fields | Pages 7, 10, 11 checked by hand: 4 prescribed medicines, 3 ordered investigations, complaints, assessment with "possible"; page-8 medicines still quarantined; overrides applied; 2 procedures moved to the audit; "Private Room". Bills, money (30400 / 30900 / 39000 / 69900, 500 flagged), dates, TPA, bank unchanged. |
+| Not rerun for this version | 5 fresh + 5 cached repeatability; disconnected-network run. The results below belong to the previous version (hash `ad77aca9…`). |
+| Known gap | Page-7 word spacing not restored. |
+
+# Previous version
+
 Target laptop, 7 Nov 2026: Windows 11 10.0.26200, Python 3.13.9, pytest 9.2.0, Ollama 0.40.15, `mistral:7b` digest `6577803aa9a0…bfbc1cf` (Q4_K_M), PaddleOCR 3.7.0 / PaddlePaddle 3.3.1 on CPU.
 
 There are three kinds of evidence below. Keep them apart:

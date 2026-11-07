@@ -178,3 +178,12 @@ Schema valid, no errors. Factual warnings: line items plus room 69400 vs claimed
 
 - No email, upload, repository publish, deployment, or zip was produced.
 - Poppler fallback, RapidOCR, macOS, Linux on this revision: not run.
+
+# Part 3: targeted accuracy fixes (7 Nov 2026, 08:10–08:38 IST)
+
+- 08:10 checkpoint of code, docs, JSON, audit to `private/checkpoint-20261107-0810/`.
+- Added visit-page OPD section (page 10), profile primary-record pages {6, 7, 10, 11, 12}, drug numbers from the medicine's own line, procedure-heading split, room cell completion, `--ocr-overrides` with two human-reviewed page-7 lines (`private/ocr_overrides.json`), and removal of prescribed-medicine lines from `treatment_taken`.
+- `pytest tests -q`: 26 passed.
+- `main.py input/record.pdf --profile clarion-assignment --fresh --ocr-overrides private/ocr_overrides.json`: 08:14–08:23 (564 s), then after the treatment fix 08:25–08:34 (559 s), hash `e5cd3283…`. Both success, 8/8 sections.
+- `validate.py`: schema valid. Field change record: `private/submission/field-change-record.json` (35 changed values, all generated).
+- Repeatability and offline runs were not repeated for this version.

@@ -133,6 +133,7 @@ def main() -> int:
     command = [
         sys.executable, "main.py", "input/record.pdf",
         "--profile", "clarion-assignment", "--fresh", "--workdir", str(workdir),
+        *sys.argv[1:],
     ]
     result["command"] = " ".join(command[1:])
     result["workdir"] = str(workdir)
@@ -182,7 +183,7 @@ def main() -> int:
         result["sections"] = {section["name"]: section["status"] for section in audit.get("sections") or []}
     result["ocr_cache_files_created"] = len(list((workdir / "ocr").glob("page-*.json")))
 
-    reference = ROOT / "private" / "runs" / "fresh-4" / "run.json"
+    reference = ROOT / "private" / "runs" / "final-0835" / "run.json"
     if reference.is_file():
         online_hash = json.loads(reference.read_text(encoding="utf-8")).get("canonical_sha256")
         result["online_fresh_reference_sha256"] = online_hash

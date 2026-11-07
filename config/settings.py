@@ -14,6 +14,10 @@ GENERATION_SEED = 42
 
 ASSIGNMENT_PAGE_SPEC = "6-12"
 ASSIGNMENT_FORCE_OCR = frozenset({7, 8, 9, 11})
+# Pages reviewed as the primary patient's hospital record. A page here may link
+# clinical content to the patient without repeating the name, but only when it
+# names no other person. Page 8 (outside prescription) and 9 (cheque) are not here.
+ASSIGNMENT_PRIMARY_RECORD_PAGES = frozenset({6, 7, 10, 11, 12})
 
 
 @dataclass(frozen=True)
@@ -75,6 +79,7 @@ def section_plan(profile: str, available: list[int], *, smoke: bool) -> list[Sec
             SectionSpec("identity", "identity", (6, 12)),
             SectionSpec("history", "history", (7,)),
             SectionSpec("opd", "opd", (8,)),
+            SectionSpec("visit_opd", "visit_opd", (10,)),
             SectionSpec("bank", "bank", (9,)),
             SectionSpec("visit", "visit", (10,)),
             SectionSpec("bills", "bills", (11,)),
@@ -92,6 +97,12 @@ def section_plan(profile: str, available: list[int], *, smoke: bool) -> list[Sec
     return planned
 
 
+def primary_record_pages(profile: str) -> set[int]:
+    if profile == "clarion-assignment":
+        return set(ASSIGNMENT_PRIMARY_RECORD_PAGES)
+    return set()
+
+
 def force_ocr_pages(profile: str) -> set[int]:
     if profile == "clarion-assignment":
         return set(ASSIGNMENT_FORCE_OCR)
@@ -103,6 +114,7 @@ def allowed_keys(section_name: str) -> tuple[str, ...]:
         "identity": ("hospital", "doctor", "patient"),
         "history": ("history",),
         "opd": ("opd",),
+        "visit_opd": ("opd",),
         "bank": ("bank",),
         "visit": ("claim", "diagnosis", "symptoms", "treatment", "dischargeType"),
         "bills": ("bills",),

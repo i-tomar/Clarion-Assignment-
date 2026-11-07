@@ -90,6 +90,8 @@ Other commands:
 .\.venv\Scripts\python.exe -m pytest tests -q
 ```
 
+The submitted run also passed `--ocr-overrides private/ocr_overrides.json`: human-reviewed corrections of two OCR lines, applied only on an exact line match and listed under `transcription_overrides` in the audit.
+
 `extract.py` and `main.py` are the same CLI. On this laptop one fresh run takes about 8–9 minutes (about 1 minute OCR, the rest is seven CPU model calls). A cached run takes about 1.5 seconds and makes no model call.
 
 `--fresh` and `--refresh` do not read the response cache. `--repeatability` runs the fresh path several times, does not read or write the response cache, writes `output/repeatability.json`, stores each run's claim under `output/repeatability/`, and lists differing field paths (never values). Equal canonical hashes only mean those JSON documents matched after key sorting. Temperature 0 and seed 42 do not guarantee identical completions on other hardware, other Ollama versions, or other settings.

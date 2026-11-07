@@ -232,6 +232,7 @@ SECTION_MODELS = {
     "identity": IdentitySection,
     "history": HistorySection,
     "opd": OPDSection,
+    "visit_opd": OPDSection,
     "bank": BankSection,
     "bills": BillsSection,
     "room": RoomsSection,

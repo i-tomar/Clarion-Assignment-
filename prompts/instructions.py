@@ -32,6 +32,8 @@ allergies holds allergies only. current_medications holds current medications on
 Never put the same printed line in more than one of these three dictionaries.
 Use one dictionary entry per printed line. Keys are plain labels such as item1, item2.
 Each value is that whole printed line copied exactly as it appears, including the drug or condition name.
+If the source runs words together without spaces, insert a space between words in your copy. Never change, add, or remove any letter, digit, or symbol.
+Past surgeries or major treatments are procedures, not diseases; still list them in medicalhistory so a later check can file them.
 Never leave a value empty and never put the item itself in the key.
 Do not extract a handwritten prescription in this section.
 """
@@ -40,6 +42,16 @@ OPD = """Section: one outpatient prescription page.
 Fill document_patient_name with the patient named on THIS page, even when that person is not the main record patient.
 Copy medicines printed on this page into pharmacy. Use 0 for any dose number you cannot read.
 Leave complaints, diagnosis, and investigations empty when they are not printed.
+"""
+
+VISIT_OPD = """Section: outpatient details from the primary patient's visit page.
+document_patient_name: a patient name printed on THIS page, or "" if none is printed.
+reportingComplaint: the complaints or symptoms the patient presented with, copied as printed, one per entry.
+diagnosis: each diagnosis or assessment phrase as printed, one per entry, keeping qualifiers such as possible.
+investigations: tests and imaging listed as ordered, copied as printed, one per entry. Do not include results or vital signs.
+pharmacy: each medicine listed as prescribed. name is the medicine name with its printed strength, copied exactly (for example "Name 5 mg").
+dosageFrequencyPerDay, dosagefrequencyTotalDays and count: use 0 unless that exact number is printed for that medicine. Never derive them.
+Do not include follow-up recommendations, diet advice, or dialysis plans in any field.
 """
 
 BANK = """Section: bank document, often a cancelled cheque.
@@ -55,7 +67,8 @@ Put a visit date only in visit_date. Put a signature date only in signature_date
 Leave dischargeType empty unless a discharge type is labeled.
 diagnosis: copy each condition named under a printed Diagnosis or Assessment heading as its own entry, word for word, keeping words such as possible.
 diagnosis.icd stays empty unless an ICD code is printed. Symptoms and treatment_taken must be copied, not paraphrased.
-treatment_taken is one plain-text string, never JSON. Copy the printed treatment or medication lines exactly, separated by "; ".
+treatment_taken is one plain-text string, never JSON. Fill it only with treatment the source records as already given or performed, copied exactly.
+Medications listed as prescribed, tests ordered, and follow-up recommendations are not treatment taken. If nothing is recorded as given, use "".
 """
 
 TABLE_RULES = """If a [TABLE] block is present, read rows from it and ignore the [IMAGE OCR] copy of the same table.
@@ -70,7 +83,8 @@ Copy discount, quantity, and remarks from their columns. Leave invoice_date and 
 """
 
 ROOM = """Section: room charge lines.
-""" + TABLE_RULES + """rate is the rate per day column and discount is the printed Discount column.
+""" + TABLE_RULES + """Copy each cell's whole text, including words on a second line of the cell.
+rate is the rate per day column and discount is the printed Discount column.
 When the table prints a number of days, copy that same printed number into both quantity and total_days.
 Leave start_date and end_date empty unless the room table prints those dates.
 Copy the printed room total into total_room_amount. Do not replace it with your own product.
@@ -86,6 +100,7 @@ INSTRUCTIONS = {
     "identity": IDENTITY,
     "history": HISTORY,
     "opd": OPD,
+    "visit_opd": VISIT_OPD,
     "bank": BANK,
     "visit": VISIT,
     "bills": BILLS,
