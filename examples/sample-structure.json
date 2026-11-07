@@ -1,0 +1,74 @@
+{
+  "data": {
+    "hospital": {
+      "name": "",
+      "registration_number": "",
+      "address": "",
+      "city": "",
+      "state": "",
+      "pin": "",
+      "email": "",
+      "phone": ""
+    },
+    "doctor": {
+      "name": "",
+      "registration_number": "",
+      "department": "",
+      "designation": "",
+      "qualification": "",
+      "email": "",
+      "phone": ""
+    },
+    "patient": {
+      "name": "",
+      "dob": "",
+      "address": "",
+      "city": "",
+      "state": "",
+      "pin": "",
+      "tpa_id": "",
+      "employee_id": "",
+      "company_name": "",
+      "pan_card": "",
+      "aadhar_card": "",
+      "phone": "",
+      "email": ""
+    },
+    "claim": {
+      "doa": "",
+      "dod": "",
+      "total_claimed_amount": ""
+    },
+    "bills": [],
+    "medicalDetails": {
+      "dischargeType": "",
+      "patientAddress": {
+        "address": "",
+        "city": "",
+        "state": "",
+        "pinCode": ""
+      },
+      "opd_details": {
+        "reportingComplaint": [],
+        "diagnosis": [],
+        "investigations": [],
+        "pharmacy": []
+      },
+      "Patient_bankinfo": {
+        "bank_name": "",
+        "account_number": "",
+        "bank_address": "",
+        "ifsi_code": ""
+      },
+      "medicalhistory": {},
+      "current_medications": {},
+      "allergies": {},
+      "diagnosis": [],
+      "symptoms": [],
+      "treatment_taken": ""
+    },
+    "room_invoice": []
+  },
+  "message": "SAMPLE STRUCTURE ONLY. Not an extraction. No model ran. No medical PDF was read to produce this file.",
+  "success": false
+}

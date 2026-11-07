@@ -1,0 +1,14 @@
+# Optional OCR extra. Not imported by unit tests.
+#
+# paddleocr 3.7.0 and paddlepaddle 3.3.1 were installed together in a previous
+# Linux environment, where a CPU OCR pass on this assignment's scans completed.
+# They were NOT reinstalled and NOT re-run while building this package.
+# Installing them can download recognition weights on first use. Do that only
+# as a one-time setup on a machine allowed to fetch those weights.
+#
+# Transitive pins from that earlier environment are intentionally omitted.
+# That environment used a venv with system site-packages and was not a clean lock.
+paddleocr==3.7.0
+paddlepaddle==3.3.1
+Pillow>=11
+numpy>=2
